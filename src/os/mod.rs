@@ -3,7 +3,7 @@ pub use self::epoll::*;
 
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
-pub use self::kqueue::*;
+pub use self::kqueue::{Events, Selector};
 
 #[cfg(unix)]
 pub use self::posix::*;

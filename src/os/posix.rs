@@ -1,15 +1,34 @@
 use error::MioResult;
-use sock::{Socket, SockAddr, InetAddr, IpV4Addr};
-use reactor::{IoHandle};
+use sock::{AddressFamily, Inet, Inet6, SockAddr, InetAddr, IpV4Addr};
 
 mod nix {
+    pub use nix::fcntl::Fd;
     pub use nix::errno::EINPROGRESS;
     pub use nix::sys::socket::*;
     pub use nix::unistd::*;
 }
 
-pub fn connect(io: IoHandle, addr: &SockAddr) -> MioResult<bool> {
-    match nix::connect(io.ident(), &from_sockaddr(addr)) {
+/// Represents the OS's handle to the IO instance. In this case, it is the file
+/// descriptor.
+#[deriving(Show)]
+pub struct IoDesc {
+    pub fd: nix::Fd
+}
+
+pub fn socket(af: AddressFamily) -> MioResult<IoDesc> {
+    let family = match af {
+        Inet  => nix::AF_INET,
+        Inet6 => nix::AF_INET6,
+        _     => unimplemented!()
+    };
+
+    Ok(IoDesc {
+        fd: try!(nix::socket(family, nix::SOCK_STREAM, nix::SOCK_NONBLOCK | nix::SOCK_CLOEXEC))
+    })
+}
+
+pub fn connect(io: IoDesc, addr: &SockAddr) -> MioResult<bool> {
+    match nix::connect(io.fd, &from_sockaddr(addr)) {
         Ok(_) => Ok(true),
         Err(e) => {
             match e.kind {
@@ -21,19 +40,17 @@ pub fn connect(io: IoHandle, addr: &SockAddr) -> MioResult<bool> {
 }
 
 #[inline]
-pub fn read(io: &IoHandle, dst: &mut [u8]) -> MioResult<uint> {
-    nix::read(io.ident(), dst)
+pub fn read(io: IoDesc, dst: &mut [u8]) -> MioResult<uint> {
+    nix::read(io.fd, dst)
 }
 
 #[inline]
-pub fn write(io: &IoHandle, src: &[u8]) -> MioResult<uint> {
-    nix::write(io.ident(), src)
+pub fn write(io: IoDesc, src: &[u8]) -> MioResult<uint> {
+    nix::write(io.fd, src)
 }
 
 fn from_sockaddr(addr: &SockAddr) -> nix::SockAddr {
     use std::mem;
-
-    println!("addr: {}", addr);
 
     match *addr {
         InetAddr(ip, port) => {

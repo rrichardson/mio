@@ -1,56 +1,67 @@
-use std::mem;
-use std::num::FromPrimitive;
-use nix::fcntl::Fd;
 use error::MioResult;
-use handler::Handler;
+use handler::{Handler, Token};
 use sock::*;
 use os;
-use util::Slab;
+
+/// A lightweight IO reactor.
+///
+/// An internal lookup structure is used to associate tokens with io
+/// descriptors as well as track whether a socket is a listener or not.
 
 #[deriving(Clone, Show)]
 pub struct ReactorConfig;
 
 pub struct Reactor {
-    selector: os::Selector,
-    conns: IoSlab
+    selector: os::Selector
 }
 
-impl<T> Reactor {
+impl<T: Token> Reactor {
+    /// Initializes a new reactor. The reactor will not be running yet.
     pub fn new() -> MioResult<Reactor> {
         Ok(Reactor {
-            selector: try!(os::Selector::new()),
-            conns: IoSlab::new(1024)
+            selector: try!(os::Selector::new())
         })
+    }
+
+    /// Registers an IO descriptor with the reactor. TODO: Make this public.
+    fn register(&mut self, io: os::IoDesc, token: T) -> MioResult<()> {
+        debug!("registering IO with reactor");
+
+        // Register interets for this socket
+        try!(self.selector.register(io, token.to_u64()));
+
+        Ok(())
     }
 
     /// Connects the socket to the specified address. When the operation
     /// completes, the handler will be notified with the supplied token.
     pub fn connect<S: Socket>(&mut self, io: S,
-                              addr: &SockAddr, _token: T) -> MioResult<()> {
+                              addr: &SockAddr, token: T) -> MioResult<()> {
 
         debug!("socket connect; addr={}", addr);
 
-        let handle = match self.conns.register(io.ident()) {
-            Some(handle) => handle,
-            None => fail!("too many connections")
-        };
+        // Get the IO descriptor
+        let desc = io.desc();
 
-        if try!(os::connect(handle, addr)) {
+        // Attempt establishing the context. This may not complete immediately.
+        if try!(os::connect(desc, addr)) {
             // On some OSs, connecting to localhost succeeds immediately. In
             // this case, queue the writable callback for execution during the
             // next reactor tick.
             debug!("socket connected immediately; addr={}", addr);
         }
 
-        // Register interest
-        try!(self.selector.register(handle));
+        // Register interest with socket on the reactor
+        try!(self.register(desc, token));
 
         Ok(())
     }
 
+    /*
     pub fn listen(&mut self, _io: IoHandle, _token: T) {
         unimplemented!()
     }
+    */
 
     pub fn shutdown(&mut self) {
         unimplemented!()
@@ -62,98 +73,36 @@ impl<T> Reactor {
         let run = true;
 
         while run { // TODO: Have stop condition
-            println!("Loopin'");
+            debug!("reactor tick");
 
+            // Check the registered IO handles for any new events
             self.io_poll(&mut events, &mut handler);
         }
     }
 
-    fn io_poll<H: Handler<T>>(&mut self, events: &mut os::Events, _handler: &mut H) {
+    fn io_poll<H: Handler<T>>(&mut self, events: &mut os::Events, handler: &mut H) {
         self.selector.select(events, 1000).unwrap();
 
         let mut i = 0u;
 
         while i < events.len() {
             let evt = events.get(i);
-
-            println!("io: {}", evt.io);
+            let tok = Token::from_u64(evt.token);
 
             if evt.is_readable() {
-                println!(" + READABLE");
+                handler.readable(self, tok);
             }
 
             if evt.is_writable() {
-                println!(" + WRITABLE");
+                handler.writable(self, tok);
             }
 
             if evt.is_error() {
                 println!(" + ERROR");
             }
 
-            let mut foo: [u8, ..1024] = unsafe { mem::uninitialized() };
-
-            println!("{}", evt.io.read(foo.as_mut_slice()));
-
             i += 1;
         }
-    }
-}
-
-/*
- * IoHandle is a handle to a socket registered with the reactor. It can be used
- * to retrieve the socket. It also contains the FD and can be used to read /
- * write directly. It must be at most 64bits in order to fit in the epoll registry.
- */
-#[deriving(Show)]
-pub struct IoHandle {
-    ident: Fd,
-    tag: u32
-}
-
-impl IoHandle {
-    pub fn ident(&self) -> Fd {
-        self.ident
-    }
-
-    pub fn tag(&self) -> uint {
-        self.tag as uint
-    }
-
-    pub fn read(&self, dst: &mut [u8]) -> MioResult<uint> {
-        os::read(self, dst)
-    }
-
-    pub fn write(&self, src: &[u8]) -> MioResult<uint> {
-        os::write(self, src)
-    }
-}
-
-struct IoSlab {
-    conns: Slab<Fd>
-}
-
-impl IoSlab {
-    fn new(capacity: uint) -> IoSlab {
-        IoSlab { conns: Slab::new(capacity) }
-    }
-
-    fn register(&mut self, fd: Fd) -> Option<IoHandle> {
-        match self.conns.put(fd) {
-            Ok(handle) => {
-                let handle: u32 = FromPrimitive::from_uint(handle)
-                    .expect("[BUG] invalid handle");
-
-                Some(IoHandle {
-                    ident: fd,
-                    tag: handle as u32
-                })
-            }
-            Err(_) => return None
-        }
-    }
-
-    fn deregister(&mut self, _handle: IoHandle) {
-        unimplemented!()
     }
 }
 
@@ -169,14 +118,14 @@ bitflags!(
 #[deriving(Show)]
 pub struct IoEvent {
     kind: IoEventKind,
-    io: IoHandle
+    token: u64
 }
 
 impl IoEvent {
-    pub fn new(kind: IoEventKind, io: IoHandle) -> IoEvent {
+    pub fn new(kind: IoEventKind, token: u64) -> IoEvent {
         IoEvent {
             kind: kind,
-            io: io
+            token: token
         }
     }
 

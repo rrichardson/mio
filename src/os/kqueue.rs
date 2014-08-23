@@ -2,7 +2,8 @@ use std::mem;
 use nix::fcntl::Fd;
 use nix::sys::event::*;
 use error::MioResult;
-use reactor::{IoEvent, IoHandle, IoReadable, IoWritable, IoError};
+use os::IoDesc;
+use reactor::{IoEvent, IoReadable, IoWritable, IoError};
 
 pub struct Selector {
     kq: Fd,
@@ -27,11 +28,11 @@ impl Selector {
         Ok(())
     }
 
-    pub fn register(&mut self, handle: IoHandle) -> MioResult<()> {
+    pub fn register(&mut self, io: IoDesc, token: u64) -> MioResult<()> {
         let flag = EV_ADD | EV_ONESHOT;
 
-        try!(self.ev_push(handle, EVFILT_READ, flag, FilterFlag::empty()));
-        try!(self.ev_push(handle, EVFILT_WRITE, flag, FilterFlag::empty()));
+        try!(self.ev_push(io, EVFILT_READ, flag, FilterFlag::empty(), token));
+        try!(self.ev_push(io, EVFILT_WRITE, flag, FilterFlag::empty(), token));
 
         Ok(())
     }
@@ -39,10 +40,11 @@ impl Selector {
     // Queues an event change. Events will get submitted to the OS on the next
     // call to select or when the change buffer fills up.
     fn ev_push(&mut self,
-               handle: IoHandle,
+               io: IoDesc,
                filter: EventFilter,
                flags: EventFlag,
-               fflags: FilterFlag) -> MioResult<()> {
+               fflags: FilterFlag,
+               token: u64) -> MioResult<()> {
 
         // If the change buffer is full, flush it
         try!(self.maybe_flush_changes());
@@ -50,8 +52,7 @@ impl Selector {
         let idx = self.changes.len;
         let ev = &mut self.changes.events[idx];
 
-        ev_set(ev, handle.ident() as uint, filter, flags, fflags,
-               unsafe { mem::transmute(handle) });
+        ev_set(ev, io.fd as uint, filter, flags, fflags, token);
 
         self.changes.len += 1;
 
@@ -94,7 +95,7 @@ impl Events {
         }
 
         let ev = &self.events[idx];
-        let handle = unsafe { mem::transmute(ev.ident) };
+        let token = ev.udata;
 
         // When the read end of the socket is closed, EV_EOF is set on the
         // flags, and fflags contains the error, if any.
@@ -117,7 +118,7 @@ impl Events {
             }
         }
 
-        IoEvent::new(kind, handle)
+        IoEvent::new(kind, token)
     }
 
     #[inline]

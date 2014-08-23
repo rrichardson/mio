@@ -1,59 +1,56 @@
 use std::fmt;
 use std::path::Path;
 use std::from_str::FromStr;
-use nix::fcntl::Fd;
-use nix::sys::socket::{
-    AddressFamily,
-    AF_INET,
-    AF_INET6,
-    SOCK_STREAM,
-    SOCK_NONBLOCK,
-    SOCK_CLOEXEC,
-    socket
-};
-
 use error::MioResult;
+use os;
+
+// TODO: A lot of this will most likely get moved into OS specific files
 
 pub use std::io::net::ip::{IpAddr, Port};
 pub use std::io::net::ip::Ipv4Addr as IpV4Addr;
 
+// Types of sockets
+pub enum AddressFamily {
+    Inet,
+    Inet6,
+    Unix,
+}
+
 pub trait Socket {
-    fn ident(&self) -> Fd;
+    fn desc(&self) -> os::IoDesc;
 }
 
 pub struct TcpSocket {
-    ident: Fd
+    desc: os::IoDesc
 }
 
 impl TcpSocket {
     pub fn v4() -> MioResult<TcpSocket> {
-        TcpSocket::new(AF_INET)
+        TcpSocket::new(Inet)
     }
 
     pub fn v6() -> MioResult<TcpSocket> {
-        TcpSocket::new(AF_INET6)
+        TcpSocket::new(Inet6)
     }
 
     fn new(family: AddressFamily) -> MioResult<TcpSocket> {
-        let ident = try!(socket(family, SOCK_STREAM, SOCK_NONBLOCK | SOCK_CLOEXEC));
-
-        Ok(TcpSocket { ident: ident })
+        Ok(TcpSocket { desc: try!(os::socket(family)) })
     }
 }
 
 impl Socket for TcpSocket {
-    fn ident(&self) -> Fd {
-        self.ident
+    fn desc(&self) -> os::IoDesc {
+        self.desc
     }
 }
 
 pub struct UnixSocket {
-    ident: Fd
+    desc: os::IoDesc
 }
 
 impl Socket for UnixSocket {
-    fn ident(&self) -> Fd {
-        self.ident
+    fn desc(&self) -> os::IoDesc {
+        self.desc
     }
 }
 
