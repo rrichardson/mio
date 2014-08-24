@@ -1,7 +1,7 @@
 use std::mem;
 use nix::fcntl::Fd;
 use nix::sys::event::*;
-use error::MioResult;
+use error::{MioResult, MioError};
 use os::IoDesc;
 use reactor::{IoEvent, IoReadable, IoWritable, IoError};
 
@@ -13,14 +13,15 @@ pub struct Selector {
 impl Selector {
     pub fn new() -> MioResult<Selector> {
         Ok(Selector {
-            kq: try!(kqueue()),
+            kq: try!(kqueue().map_err(MioError::from_sys_error)),
             changes: Events::new()
         })
     }
 
     pub fn select(&mut self, evts: &mut Events, timeout_ms: uint) -> MioResult<()> {
         let cnt = try!(kevent(self.kq, self.changes.as_slice(),
-                              evts.as_mut_slice(), timeout_ms));
+                              evts.as_mut_slice(), timeout_ms)
+                                  .map_err(MioError::from_sys_error));
 
         self.changes.len = 0;
 
@@ -61,7 +62,8 @@ impl Selector {
 
     fn maybe_flush_changes(&mut self) -> MioResult<()> {
         if self.changes.is_full() {
-            try!(kevent(self.kq, self.changes.as_slice(), &mut [], 0));
+            try!(kevent(self.kq, self.changes.as_slice(), &mut [], 0)
+                    .map_err(MioError::from_sys_error));
             self.changes.len = 0;
         }
 

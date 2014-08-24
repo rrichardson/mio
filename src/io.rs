@@ -2,17 +2,6 @@ use os;
 use error::MioResult;
 use sock::Socket;
 
-pub enum IoRead {
-    Success(uint),
-    Eof,
-    WouldBlock
-}
-
-pub enum IoWrite {
-    Success(uint),
-    WouldBlock
-}
-
 pub trait IoReader {
     fn read(&mut self, buf: &mut [u8]) -> MioResult<uint>;
 }

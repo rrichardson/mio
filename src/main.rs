@@ -34,15 +34,25 @@ impl MyHandler {
 
 impl Handler<uint> for MyHandler {
     fn readable(&mut self, reactor: &mut Reactor, tok: uint) {
+        let mut buf = Vec::from_fn(1024, |_| 0);
         let mut i = 0u;
 
         loop {
             i += 1;
 
-            let mut buf = Vec::from_fn(1024, |_| 0);
-            let res = self.sock.read(buf.as_mut_slice()).unwrap();
-            println!("READ: {}", res);
-            println!("{}", str::from_utf8(buf.as_slice().slice_to(res)));
+            match self.sock.read(buf.as_mut_slice()) {
+                Ok(cnt) => {
+                    println!("{}", str::from_utf8(buf.as_slice().slice_to(cnt)));
+                }
+                Err(e) if e.is_eof() => {
+                    println!("EOF");
+                    return;
+                }
+                e => {
+                    println!("error: {}", e);
+                    return;
+                }
+            }
         }
     }
 

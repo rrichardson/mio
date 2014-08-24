@@ -1,4 +1,4 @@
-use error::MioResult;
+use error::{MioResult, MioError};
 use sock::{AddressFamily, Inet, Inet6, SockAddr, InetAddr, IpV4Addr};
 
 mod nix {
@@ -23,7 +23,8 @@ pub fn socket(af: AddressFamily) -> MioResult<IoDesc> {
     };
 
     Ok(IoDesc {
-        fd: try!(nix::socket(family, nix::SOCK_STREAM, nix::SOCK_NONBLOCK | nix::SOCK_CLOEXEC))
+        fd: try!(nix::socket(family, nix::SOCK_STREAM, nix::SOCK_NONBLOCK | nix::SOCK_CLOEXEC)
+                    .map_err(MioError::from_sys_error))
     })
 }
 
@@ -33,7 +34,7 @@ pub fn connect(io: IoDesc, addr: &SockAddr) -> MioResult<bool> {
         Err(e) => {
             match e.kind {
                 nix::EINPROGRESS => Ok(false),
-                _ => Err(e)
+                _ => Err(MioError::from_sys_error(e))
             }
         }
     }
@@ -41,12 +42,12 @@ pub fn connect(io: IoDesc, addr: &SockAddr) -> MioResult<bool> {
 
 #[inline]
 pub fn read(io: IoDesc, dst: &mut [u8]) -> MioResult<uint> {
-    nix::read(io.fd, dst)
+    nix::read(io.fd, dst).map_err(MioError::from_sys_error)
 }
 
 #[inline]
 pub fn write(io: IoDesc, src: &[u8]) -> MioResult<uint> {
-    nix::write(io.fd, src)
+    nix::write(io.fd, src).map_err(MioError::from_sys_error)
 }
 
 fn from_sockaddr(addr: &SockAddr) -> nix::SockAddr {
