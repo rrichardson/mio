@@ -1,6 +1,6 @@
 use os;
 use error::MioResult;
-use sock::Socket;
+use sock::{Socket, TcpAcceptor};
 
 pub trait IoReader {
     fn read(&mut self, buf: &mut [u8]) -> MioResult<uint>;
@@ -8,6 +8,10 @@ pub trait IoReader {
 
 pub trait IoWriter {
     fn write(&mut self, buf: &[u8]) -> MioResult<uint>;
+}
+
+pub trait IoAcceptor<T> {
+    fn accept(&mut self) -> MioResult<T>;
 }
 
 impl<S: Socket> IoReader for S {

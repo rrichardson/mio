@@ -30,7 +30,7 @@ impl Selector {
     }
 
     pub fn register(&mut self, io: IoDesc, token: u64) -> MioResult<()> {
-        let flag = EV_ADD | EV_ONESHOT;
+        let flag = EV_ADD | EV_CLEAR;
 
         try!(self.ev_push(io, EVFILT_READ, flag, FilterFlag::empty(), token));
         try!(self.ev_push(io, EVFILT_WRITE, flag, FilterFlag::empty(), token));

@@ -1,5 +1,5 @@
 #[cfg(target_os = "linux")]
-pub use self::epoll::*;
+pub use self::epoll::{Events, Selector};
 
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]

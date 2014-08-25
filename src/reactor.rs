@@ -1,7 +1,8 @@
 use error::MioResult;
 use handler::{Handler, Token};
-use sock::*;
+use io::{IoAcceptor};
 use os;
+use sock::*;
 
 /// A lightweight IO reactor.
 ///
@@ -23,12 +24,12 @@ impl<T: Token> Reactor {
         })
     }
 
-    /// Registers an IO descriptor with the reactor. TODO: Make this public.
-    fn register(&mut self, io: os::IoDesc, token: T) -> MioResult<()> {
+    /// Registers an IO descriptor with the reactor.
+    pub fn register<S: Socket>(&mut self, io: S, token: T) -> MioResult<()> {
         debug!("registering IO with reactor");
 
         // Register interets for this socket
-        try!(self.selector.register(io, token.to_u64()));
+        try!(self.selector.register(io.desc(), token.to_u64()));
 
         Ok(())
     }
@@ -40,11 +41,8 @@ impl<T: Token> Reactor {
 
         debug!("socket connect; addr={}", addr);
 
-        // Get the IO descriptor
-        let desc = io.desc();
-
         // Attempt establishing the context. This may not complete immediately.
-        if try!(os::connect(desc, addr)) {
+        if try!(os::connect(io.desc(), addr)) {
             // On some OSs, connecting to localhost succeeds immediately. In
             // this case, queue the writable callback for execution during the
             // next reactor tick.
@@ -52,18 +50,33 @@ impl<T: Token> Reactor {
         }
 
         // Register interest with socket on the reactor
-        try!(self.register(desc, token));
+        try!(self.register(io, token));
 
         Ok(())
     }
 
-    /*
-    pub fn listen(&mut self, _io: IoHandle, _token: T) {
+    pub fn listen<S, A: Socket + IoAcceptor<S>>(&mut self, io: A, backlog: uint,
+                                                token: T) -> MioResult<()> {
+
+        debug!("socket listen");
+
+        // Start listening
+        try!(os::listen(io.desc(), backlog));
+
+        // Wait for connections
+        try!(self.register(io, token));
+
+        Ok(())
+    }
+
+    /// Tells the reactor to exit after it is done handling all events in the
+    /// current iteration.
+    pub fn shutdown(&mut self) {
         unimplemented!()
     }
-    */
 
-    pub fn shutdown(&mut self) {
+    /// Tells the reactor to exit immidiately. All pending events will be dropped.
+    pub fn shutdown_now(&mut self) {
         unimplemented!()
     }
 
@@ -88,6 +101,8 @@ impl<T: Token> Reactor {
         while i < events.len() {
             let evt = events.get(i);
             let tok = Token::from_u64(evt.token);
+
+            debug!("event={}", evt);
 
             if evt.is_readable() {
                 handler.readable(self, tok);

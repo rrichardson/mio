@@ -2,6 +2,7 @@ use std::fmt;
 use std::path::Path;
 use std::from_str::FromStr;
 use error::MioResult;
+use io::IoAcceptor;
 use os;
 
 // TODO: A lot of this will most likely get moved into OS specific files
@@ -16,8 +17,15 @@ pub enum AddressFamily {
     Unix,
 }
 
-pub trait Socket {
+pub trait IoHandle {
     fn desc(&self) -> os::IoDesc;
+}
+
+pub trait Socket : IoHandle {
+    // Various sock opt fns
+    fn is_acceptor(&self) -> bool {
+        unimplemented!();
+    }
 }
 
 pub struct TcpSocket {
@@ -36,11 +44,40 @@ impl TcpSocket {
     fn new(family: AddressFamily) -> MioResult<TcpSocket> {
         Ok(TcpSocket { desc: try!(os::socket(family)) })
     }
+
+    pub fn bind(self, addr: &SockAddr) -> MioResult<TcpAcceptor> {
+        try!(os::bind(self.desc, addr))
+        Ok(TcpAcceptor { desc: self.desc })
+    }
+}
+
+impl IoHandle for TcpSocket {
+    fn desc(&self) -> os::IoDesc {
+        self.desc
+    }
 }
 
 impl Socket for TcpSocket {
+}
+
+pub struct TcpAcceptor {
+    desc: os::IoDesc
+}
+
+impl IoHandle for TcpAcceptor {
     fn desc(&self) -> os::IoDesc {
         self.desc
+    }
+}
+
+impl Socket for TcpAcceptor {
+}
+
+impl IoAcceptor<TcpSocket> for TcpAcceptor {
+    fn accept(&mut self) -> MioResult<TcpSocket> {
+        Ok(TcpSocket {
+            desc: try!(os::accept(self.desc()))
+        })
     }
 }
 
@@ -48,10 +85,13 @@ pub struct UnixSocket {
     desc: os::IoDesc
 }
 
-impl Socket for UnixSocket {
+impl IoHandle for UnixSocket {
     fn desc(&self) -> os::IoDesc {
         self.desc
     }
+}
+
+impl Socket for UnixSocket {
 }
 
 pub enum SockAddr {

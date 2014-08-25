@@ -40,9 +40,32 @@ pub fn connect(io: IoDesc, addr: &SockAddr) -> MioResult<bool> {
     }
 }
 
+pub fn bind(io: IoDesc, addr: &SockAddr) -> MioResult<()> {
+    nix::bind(io.fd, &from_sockaddr(addr))
+        .map_err(MioError::from_sys_error)
+}
+
+pub fn listen(io: IoDesc, backlog: uint) -> MioResult<()> {
+    nix::listen(io.fd, backlog)
+        .map_err(MioError::from_sys_error)
+}
+
+pub fn accept(io: IoDesc) -> MioResult<IoDesc> {
+    Ok(IoDesc {
+        fd: try!(nix::accept4(io.fd, nix::SOCK_NONBLOCK | nix::SOCK_CLOEXEC)
+                     .map_err(MioError::from_sys_error))
+    })
+}
+
 #[inline]
 pub fn read(io: IoDesc, dst: &mut [u8]) -> MioResult<uint> {
-    nix::read(io.fd, dst).map_err(MioError::from_sys_error)
+    let res = try!(nix::read(io.fd, dst).map_err(MioError::from_sys_error));
+
+    if res == 0 {
+        return Err(MioError::eof());
+    }
+
+    Ok(res)
 }
 
 #[inline]
