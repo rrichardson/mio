@@ -27,14 +27,13 @@ impl Selector {
             timeout_ms as isize
         };
 
-        let dst = unsafe {
-            slice::from_raw_parts_mut(
-                evts.events.as_mut_ptr(),
-                evts.events.capacity())
+        unsafe {
+            let cap = evts.events.capacity();
+            evts.events.set_len(cap);
         };
 
         // Wait for epoll events for at most timeout_ms milliseconds
-        let cnt = try!(epoll_wait(self.epfd, dst, timeout_ms)
+        let cnt = try!(epoll_wait(self.epfd, &mut evts.events, timeout_ms)
                            .map_err(super::from_nix_error));
 
         unsafe { evts.events.set_len(cnt); }

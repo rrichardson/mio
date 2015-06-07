@@ -2,7 +2,7 @@ use {io, Interest, PollOpt, Token};
 use event::IoEvent;
 use nix::sys::event::{EventFilter, EventFlag, FilterFlag, KEvent, ev_set, kqueue, kevent};
 use nix::sys::event::{EV_ADD, EV_CLEAR, EV_DELETE, EV_DISABLE, EV_ENABLE, EV_EOF, EV_ONESHOT};
-use std::{fmt, slice};
+use std::fmt;
 use std::os::unix::io::RawFd;
 use std::collections::HashMap;
 use std::collections::hash_map::Values;
@@ -22,16 +22,16 @@ impl Selector {
     }
 
     pub fn select(&mut self, evts: &mut Events, timeout_ms: usize) -> io::Result<()> {
-        let cnt = try!(kevent(self.kq, self.changes.as_slice(),
-                              evts.as_mut_slice(), timeout_ms)
+        unsafe {
+            let cap = evts.events.capacity();
+            evts.events.set_len(cap);
+        }
+        let cnt = try!(kevent(self.kq, &self.changes.events,
+                              &mut evts.events, timeout_ms)
                                   .map_err(super::from_nix_error));
+        unsafe { evts.events.set_len(cnt); }
 
         self.changes.events.clear();
-
-        unsafe {
-            evts.events.set_len(cnt);
-        }
-
         evts.coalesce();
 
         Ok(())
@@ -96,7 +96,7 @@ impl Selector {
 
     fn maybe_flush_changes(&mut self) -> io::Result<()> {
         if self.changes.is_full() {
-            try!(kevent(self.kq, self.changes.as_slice(), &mut [], 0)
+            try!(kevent(self.kq, &self.changes.events, &mut [], 0)
                     .map_err(super::from_nix_error));
 
             self.changes.events.clear();
@@ -151,20 +151,6 @@ impl Events {
     #[inline]
     fn is_full(&self) -> bool {
         self.len() == self.events.capacity()
-    }
-
-    fn as_slice(&self) -> &[KEvent] {
-        unsafe {
-            let ptr = (&self.events[..]).as_ptr();
-            slice::from_raw_parts(ptr, self.events.len())
-        }
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [KEvent] {
-        unsafe {
-            let ptr = (&mut self.events[..]).as_mut_ptr();
-            slice::from_raw_parts_mut(ptr, self.events.capacity())
-        }
     }
 }
 
