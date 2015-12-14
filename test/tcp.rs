@@ -182,11 +182,16 @@ fn write() {
     });
 
     let mut e = EventLoop::new().unwrap();
-    let s = TcpStream::connect(&addr).unwrap();
+    let mut s = TcpStream::connect(&addr).unwrap();
+
+    let amt = match s.try_write(&[0; 1024]).unwrap() {
+        Some(amt) => amt,
+        None => 0,
+    };
 
     e.register(&s, Token(1), EventSet::writable(), PollOpt::edge()).unwrap();
 
-    let mut h = H { amt: 0, socket: s };
+    let mut h = H { amt: amt, socket: s };
     e.run(&mut h).unwrap();
     t.join().unwrap();
 }
